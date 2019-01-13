@@ -4,4 +4,6 @@ EXECUTE_PROCESS(COMMAND git submodule update --init
         )
 
 # Add Catch
-add_subdirectory(Catch2)
+if(NOT TARGET Catch2)
+    add_subdirectory(Catch2)
+endif()
