@@ -2,10 +2,10 @@
 
 #include <cctype>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <string>
 #include <unordered_map>
-#include <optional>
 
 namespace warcpp {
 
@@ -54,14 +54,6 @@ class Warc_Record {
             throw Warc_Format_Error(field_value, "could not parse content length: ");
         }
     }
-    [[nodiscard]] auto http_content_length() const -> std::size_t {
-        auto const &field_value = http_fields_.at(Content_Length);
-        try {
-            return std::stoi(field_value);
-        } catch (std::invalid_argument &error) {
-            throw Warc_Format_Error(field_value, "could not parse content length: ");
-        }
-    }
     [[nodiscard]] auto content() -> std::string & { return content_; }
     [[nodiscard]] auto content() const -> std::string const & { return content_; }
     [[nodiscard]] auto url() const -> std::string const & {
@@ -92,21 +84,6 @@ std::string const Warc_Record::Warc_Trec_Id    = "warc-trec-id";
 std::string const Warc_Record::Content_Length  = "content-length";
 std::string const Warc_Record::Response        = "response";
 
-std::istream &read_version(std::istream &in, std::string &version) {
-    std::string line{};
-    while (line.empty()) {
-        if (not std::getline(in, line)) {
-            return in;
-        }
-    }
-    std::regex  version_pattern("^WARC/(.+)$");
-    std::smatch sm;
-    if (not std::regex_search(line, sm, version_pattern)) {
-        throw Warc_Format_Error(line, "could not parse version: ");
-    }
-    version = sm.str(1);
-    return in;
-}
 
 template <typename StringRange>
 [[nodiscard]] std::pair<StringRange, StringRange> split(StringRange str, char delim) {
@@ -124,9 +101,28 @@ template <typename StringRange>
     return StringRange(begin, end);
 }
 
-void read_fields(std::istream &in, Field_Map &fields) {
+std::istream &read_version(std::istream &in, std::string &version) {
+    std::string line{};
+    while (line.empty()) {
+        if (not std::getline(in, line)) {
+            return in;
+        }
+    }
+    std::regex  version_pattern("^WARC/(.+)$");
+    std::smatch sm;
+    line = trim(line);
+    if (not std::regex_search(line, sm, version_pattern)) {
+        throw Warc_Format_Error(line, "could not parse version: ");
+    }
+    version = sm.str(1);
+    return in;
+}
+
+size_t read_fields(std::istream &in, Field_Map &fields) {
+    size_t      read = 0;
     std::string line;
     std::getline(in, line);
+    read += line.length();
     while (not line.empty() && line != "\r") {
         auto[name, value] = split(line, ':');
         if (name.empty() || value.empty()) {
@@ -139,13 +135,14 @@ void read_fields(std::istream &in, Field_Map &fields) {
         });
         fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
         std::getline(in, line);
+        read += line.length();
     }
+    return read;
 }
 
 std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
     std::string version;
     if (not read_version(in, version)) {
-        record.http_fields_[Warc_Record::Content_Length] = "0";
         record.warc_fields_[Warc_Record::Content_Length] = "0";
         return in;
     }
@@ -158,13 +155,17 @@ std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
     if (record.type() == "response") {
         std::getline(in, line);
     }
-    read_fields(in, record.http_fields_);
+    std::size_t length = record.warc_content_length() - line.length();
+    length -= read_fields(in, record.http_fields_);
     if (record.type() == "response") {
-        std::size_t length = record.http_content_length();
+        // Skip any empty lines
+        while (line.empty()) {
+            if (not std::getline(in, line)) {
+                return in;
+            }
+        }
         record.content_.resize(length);
         in.read(&record.content_[0], length);
-        std::getline(in, line);
-        std::getline(in, line);
     }
     return in;
 }
