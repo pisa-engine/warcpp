@@ -124,9 +124,11 @@ template <typename StringRange>
     return StringRange(begin, end);
 }
 
-void read_fields(std::istream &in, Field_Map &fields) {
+size_t read_fields(std::istream &in, Field_Map &fields) {
+    size_t read = 0;
     std::string line;
     std::getline(in, line);
+    read += line.length();
     while (not line.empty() && line != "\r") {
         auto[name, value] = split(line, ':');
         if (name.empty() || value.empty()) {
@@ -139,13 +141,14 @@ void read_fields(std::istream &in, Field_Map &fields) {
         });
         fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
         std::getline(in, line);
+        read += line.length();
     }
+    return read;
 }
 
 std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
     std::string version;
     if (not read_version(in, version)) {
-        record.http_fields_[Warc_Record::Content_Length] = "0";
         record.warc_fields_[Warc_Record::Content_Length] = "0";
         return in;
     }
@@ -158,9 +161,9 @@ std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
     if (record.type() == "response") {
         std::getline(in, line);
     }
-    read_fields(in, record.http_fields_);
+    std::size_t length = record.warc_content_length() - line.length();
+    length -= read_fields(in, record.http_fields_);
     if (record.type() == "response") {
-        std::size_t length = record.http_content_length();
         record.content_.resize(length);
         in.read(&record.content_[0], length);
         std::getline(in, line);

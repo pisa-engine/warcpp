@@ -116,19 +116,9 @@ std::string response() {
            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
            "Content-Type: application/http;msgtype=response\n"
            "WARC-Identified-Payload-Type: \n"
-           "Content-Length: 16558\n"
+           "Content-Length: 21\n"
            "\n"
-           "HTTP/1.1 200 OK\n"
-           "Content-Type: text/html\n"
-           "Date: Tue, 13 Jan 2009 18:05:10 GMT\n"
-           "Pragma: no-cache\n"
-           "Cache-Control: no-cache, must-revalidate\n"
-           "X-Powered-By: PHP/4.4.8\n"
-           "Server: WebServerX\n"
-           "Connection: close\n"
-           "Last-Modified: Tue, 13 Jan 2009 18:05:10 GMT\n"
-           "Expires: Mon, 20 Dec 1998 01:00:00 GMT\n"
-           "Content-Length: 10\n"
+           "HTTP_HEADER\n"
            "\n"
            "Content...";
 }
@@ -140,6 +130,7 @@ TEST_CASE("Parse response record", "[warc][unit]")
     read_warc_record(in, record);
     CHECK(in.peek() == EOF);
     CHECK(record.type() == "response");
+    CHECK(record.content().size() == 10);
     CHECK(record.content() == "Content...");
     CHECK(record.url() == "http://00000-nrt-realestate.homepagestartup.com/");
     CHECK(record.trecid() == "clueweb09-en0000-00-00000");
@@ -182,7 +173,7 @@ TEST_CASE("Parse invalid content-length", "[warc][unit]")
         read_warc_record(in, record);
         CHECK(record.warc_content_length() == 0);
     }
-    GIVEN("A record with invalid HTTP length") {
+    GIVEN("A record with shorter WARC length") {
         std::istringstream in(
             "WARC/0.18\n"
             "WARC-Type: response\n"
@@ -193,23 +184,14 @@ TEST_CASE("Parse invalid content-length", "[warc][unit]")
             "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
             "Content-Type: application/http;msgtype=response\n"
             "WARC-Identified-Payload-Type: \n"
-            "Content-Length: 16558\n"
+            "Content-Length: 18\n"
             "\n"
-            "HTTP/1.1 200 OK\n"
-            "Content-Type: text/html\n"
-            "Date: Tue, 13 Jan 2009 18:05:10 GMT\n"
-            "Pragma: no-cache\n"
-            "Cache-Control: no-cache, must-revalidate\n"
-            "X-Powered-By: PHP/4.4.8\n"
-            "Server: WebServerX\n"
-            "Connection: close\n"
-            "Last-Modified: Tue, 13 Jan 2009 18:05:10 GMT\n"
-            "Expires: Mon, 20 Dec 1998 01:00:00 GMT\n"
-            "Content-Length: INVALID\n"
+            "HTTP_HEADER\n"
             "\n"
             "Content...");
         Warc_Record record;
-        REQUIRE_THROWS_AS(read_warc_record(in, record), Warc_Format_Error);
+        read_warc_record(in, record);
+        CHECK(record.content() == "Content");
     }
 }
 
@@ -219,5 +201,4 @@ TEST_CASE("Parse empty record", "[warc][unit]")
     Warc_Record record;
     read_warc_record(in, record);
     REQUIRE(record.warc_content_length() == 0);
-    REQUIRE(record.http_content_length() == 0);
 }
