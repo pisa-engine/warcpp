@@ -17,14 +17,13 @@ class Warc_Format_Error : public std::runtime_error {
 };
 
 class Warc_Record;
-std::istream &read_warc_record(std::istream &in, Warc_Record &record);
+void read_warc_record(std::istream &in, Warc_Record &record);
 
 //! A WARC record.
 class Warc_Record {
    private:
     std::string version_;
     Field_Map   warc_fields_;
-    Field_Map   http_fields_;
     std::string content_;
 
     static std::string const Warc_Type;
@@ -68,14 +67,8 @@ class Warc_Record {
         }
         return std::nullopt;
     }
-    [[nodiscard]] auto http_field(std::string const &name) const -> std::optional<std::string> {
-        if (auto pos = http_fields_.find(name); pos != http_fields_.end()) {
-            return pos->second;
-        }
-        return std::nullopt;
-    }
 
-    friend std::istream &read_warc_record(std::istream &in, Warc_Record &record);
+    friend void read_warc_record(std::istream &in, Warc_Record &record);
 };
 
 std::string const Warc_Record::Warc_Type       = "warc-type";
@@ -118,11 +111,9 @@ std::istream &read_version(std::istream &in, std::string &version) {
     return in;
 }
 
-size_t read_fields(std::istream &in, Field_Map &fields) {
-    size_t      read = 0;
+void read_fields(std::istream &in, Field_Map &fields) {
     std::string line;
     std::getline(in, line);
-    read += line.length();
     while (not line.empty() && line != "\r") {
         auto[name, value] = split(line, ':');
         if (name.empty() || value.empty()) {
@@ -135,39 +126,30 @@ size_t read_fields(std::istream &in, Field_Map &fields) {
         });
         fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
         std::getline(in, line);
-        read += line.length();
     }
-    return read;
 }
+/**
+ *
+ * 1. parse version, throw otherwise
+ * 2. parse header and skip one CRLF
+ * 3. read `content-length` bytes to `content`
+ * 4. skip two CRLF
+ * 5. done
+ *
+ */
 
-std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
-    std::string version;
-    if (not read_version(in, version)) {
-        record.warc_fields_[Warc_Record::Content_Length] = "0";
-        return in;
-    }
-    record.version_ = std::move(version);
-    read_fields(in, record.warc_fields_);
-    if (record.warc_content_length() == 0) {
-        return in;
-    }
-    std::string line;
-    if (record.type() == "response") {
-        std::getline(in, line);
-    }
-    std::size_t length = record.warc_content_length() - line.length();
-    length -= read_fields(in, record.http_fields_);
-    if (record.type() == "response") {
-        // Skip any empty lines
-        while (line.empty()) {
-            if (not std::getline(in, line)) {
-                return in;
-            }
+void read_warc_record(std::istream &in, Warc_Record &record) {
+    read_version(in, record.version_);
+    if (not in.eof()){
+        read_fields(in, record.warc_fields_);
+        if (record.warc_content_length() > 0) {
+            std::size_t length = record.warc_content_length();
+            record.content_.resize(length);
+            in.read(&record.content_[0], length);
         }
-        record.content_.resize(length);
-        in.read(&record.content_[0], length);
+        in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
-    return in;
 }
 
 } // namespace warcpp
