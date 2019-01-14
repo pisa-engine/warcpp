@@ -195,6 +195,47 @@ TEST_CASE("Parse invalid content-length", "[warc][unit]")
     }
 }
 
+TEST_CASE("Parse multiple records", "[warc][unit]")
+{
+    GIVEN("Two records") {
+        std::istringstream in(
+            "WARC/0.18\n"
+            "WARC-Type: response\n"
+            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
+            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
+            "WARC-Date: 2009-03-65T08:43:19-0800\n"
+            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
+            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
+            "Content-Type: application/http;msgtype=response\n"
+            "WARC-Identified-Payload-Type: \n"
+            "Content-Length: 25\n"
+            "\n"
+            "HTTP_HEADER1\n"
+            "\n"
+            "HTTP_CONTENT1\n"
+            "\n\n\n\n"
+            "WARC/0.18\n"
+            "WARC-Type: response\n"
+            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
+            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
+            "WARC-Date: 2009-03-65T08:43:19-0800\n"
+            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
+            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
+            "Content-Type: application/http;msgtype=response\n"
+            "WARC-Identified-Payload-Type: \n"
+            "Content-Length: 25\n"
+            "\n"
+            "HTTP_HEADER2\n"
+            "\n"
+            "HTTP_CONTENT2");
+        Warc_Record record;
+        read_warc_record(in, record);
+        CHECK(record.content() == "HTTP_CONTENT1");
+        read_warc_record(in, record);
+        CHECK(record.content() == "HTTP_CONTENT2");
+    }
+}
+
 TEST_CASE("Parse empty record", "[warc][unit]")
 {
     std::istringstream in("\n");
