@@ -84,21 +84,6 @@ std::string const Warc_Record::Warc_Trec_Id    = "warc-trec-id";
 std::string const Warc_Record::Content_Length  = "content-length";
 std::string const Warc_Record::Response        = "response";
 
-std::istream &read_version(std::istream &in, std::string &version) {
-    std::string line{};
-    while (line.empty()) {
-        if (not std::getline(in, line)) {
-            return in;
-        }
-    }
-    std::regex  version_pattern("^WARC/(.+)$");
-    std::smatch sm;
-    if (not std::regex_search(line, sm, version_pattern)) {
-        throw Warc_Format_Error(line, "could not parse version: ");
-    }
-    version = sm.str(1);
-    return in;
-}
 
 template <typename StringRange>
 [[nodiscard]] std::pair<StringRange, StringRange> split(StringRange str, char delim) {
@@ -114,6 +99,23 @@ template <typename StringRange>
     begin      = std::find_if_not(begin, end, [](char c) { return std::isspace(c); });
     end        = std::find_if(begin, end, [](char c) { return std::isspace(c); });
     return StringRange(begin, end);
+}
+
+std::istream &read_version(std::istream &in, std::string &version) {
+    std::string line{};
+    while (line.empty()) {
+        if (not std::getline(in, line)) {
+            return in;
+        }
+    }
+    std::regex  version_pattern("^WARC/(.+)$");
+    std::smatch sm;
+    line = trim(line);
+    if (not std::regex_search(line, sm, version_pattern)) {
+        throw Warc_Format_Error(line, "could not parse version: ");
+    }
+    version = sm.str(1);
+    return in;
 }
 
 size_t read_fields(std::istream &in, Field_Map &fields) {
@@ -164,8 +166,6 @@ std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
         }
         record.content_.resize(length);
         in.read(&record.content_[0], length);
-        std::getline(in, line);
-        std::getline(in, line);
     }
     return in;
 }
