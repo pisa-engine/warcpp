@@ -23,7 +23,7 @@ void read_warc_record(std::istream &in, Warc_Record &record);
 class Warc_Record {
    private:
     std::string version_;
-    Field_Map   warc_fields_;
+    Field_Map   fields_;
     std::string content_;
 
     static std::string const Warc_Type;
@@ -36,17 +36,17 @@ class Warc_Record {
     Warc_Record() = default;
     explicit Warc_Record(std::string version)
         : version_(std::move(version)){}[[nodiscard]] auto type() const -> std::string const & {
-        return warc_fields_.at(Warc_Type);
+        return fields_.at(Warc_Type);
     }
     [[nodiscard]] auto has(std::string const &field) const noexcept -> bool {
-        return warc_fields_.find(field) != warc_fields_.end();
+        return fields_.find(field) != fields_.end();
     }
     [[nodiscard]] auto valid() const noexcept -> bool {
         return has(Warc_Type) && has(Warc_Target_Uri) && has(Warc_Trec_Id) && has(Content_Length) &&
                type() == Response;
     }
-    [[nodiscard]] auto warc_content_length() const -> std::size_t {
-        auto &field_value = warc_fields_.at(Content_Length);
+    [[nodiscard]] auto content_length() const -> std::size_t {
+        auto &field_value = fields_.at(Content_Length);
         try {
             return std::stoi(field_value);
         } catch (std::invalid_argument &error) {
@@ -56,13 +56,13 @@ class Warc_Record {
     [[nodiscard]] auto content() -> std::string & { return content_; }
     [[nodiscard]] auto content() const -> std::string const & { return content_; }
     [[nodiscard]] auto url() const -> std::string const & {
-        return warc_fields_.at(Warc_Target_Uri);
+        return fields_.at(Warc_Target_Uri);
     }
     [[nodiscard]] auto trecid() const -> std::string const & {
-        return warc_fields_.at(Warc_Trec_Id);
+        return fields_.at(Warc_Trec_Id);
     }
-    [[nodiscard]] auto warc_field(std::string const &name) const -> std::optional<std::string> {
-        if (auto pos = warc_fields_.find(name); pos != warc_fields_.end()) {
+    [[nodiscard]] auto field(std::string const &name) const -> std::optional<std::string> {
+        if (auto pos = fields_.find(name); pos != fields_.end()) {
             return pos->second;
         }
         return std::nullopt;
@@ -141,9 +141,9 @@ void read_fields(std::istream &in, Field_Map &fields) {
 void read_warc_record(std::istream &in, Warc_Record &record) {
     read_version(in, record.version_);
     if (not in.eof()){
-        read_fields(in, record.warc_fields_);
-        if (record.warc_content_length() > 0) {
-            std::size_t length = record.warc_content_length();
+        read_fields(in, record.fields_);
+        if (record.content_length() > 0) {
+            std::size_t length = record.content_length();
             record.content_.resize(length);
             in.read(&record.content_[0], length);
         }

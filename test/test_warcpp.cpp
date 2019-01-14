@@ -188,7 +188,7 @@ TEST_CASE("Parse invalid content-length", "[warc][unit]")
             "\n");
         Warc_Record record;
         read_warc_record(in, record);
-        CHECK(record.warc_content_length() == 0);
+        CHECK(record.content_length() == 0);
     }
 }
 
