@@ -2,10 +2,10 @@
 
 #include <cctype>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <string>
 #include <unordered_map>
-#include <optional>
 
 namespace warcpp {
 
@@ -48,14 +48,6 @@ class Warc_Record {
     }
     [[nodiscard]] auto warc_content_length() const -> std::size_t {
         auto &field_value = warc_fields_.at(Content_Length);
-        try {
-            return std::stoi(field_value);
-        } catch (std::invalid_argument &error) {
-            throw Warc_Format_Error(field_value, "could not parse content length: ");
-        }
-    }
-    [[nodiscard]] auto http_content_length() const -> std::size_t {
-        auto const &field_value = http_fields_.at(Content_Length);
         try {
             return std::stoi(field_value);
         } catch (std::invalid_argument &error) {
@@ -125,7 +117,7 @@ template <typename StringRange>
 }
 
 size_t read_fields(std::istream &in, Field_Map &fields) {
-    size_t read = 0;
+    size_t      read = 0;
     std::string line;
     std::getline(in, line);
     read += line.length();
