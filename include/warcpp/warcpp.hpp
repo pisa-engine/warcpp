@@ -156,6 +156,12 @@ std::istream &read_warc_record(std::istream &in, Warc_Record &record) {
     std::size_t length = record.warc_content_length() - line.length();
     length -= read_fields(in, record.http_fields_);
     if (record.type() == "response") {
+        // Skip any empty lines
+        while (line.empty()) {
+            if (not std::getline(in, line)) {
+                return in;
+            }
+        }
         record.content_.resize(length);
         in.read(&record.content_[0], length);
         std::getline(in, line);
