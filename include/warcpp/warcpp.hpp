@@ -17,7 +17,7 @@ class Warc_Format_Error : public std::runtime_error {
 };
 
 class Warc_Record;
-void read_warc_record(std::istream &in, Warc_Record &record);
+bool read_warc_record(std::istream &in, Warc_Record &record);
 
 //! A WARC record.
 class Warc_Record {
@@ -68,7 +68,8 @@ class Warc_Record {
         return std::nullopt;
     }
 
-    friend void read_warc_record(std::istream &in, Warc_Record &record);
+    friend bool read_warc_header(std::istream &in, Warc_Record &record);
+    friend bool read_warc_record(std::istream &in, Warc_Record &record);
 };
 
 std::string const Warc_Record::Warc_Type       = "warc-type";
@@ -94,21 +95,19 @@ template <typename StringRange>
     return StringRange(begin, end);
 }
 
-std::istream &read_version(std::istream &in, std::string &version) {
-    std::string line{};
-    while (line.empty()) {
-        if (not std::getline(in, line)) {
-            return in;
-        }
-    }
-    std::regex  version_pattern("^WARC/(.+)$");
+bool read_version(std::istream &in, std::string &version) {
+    std::regex version_pattern("^WARC/(.+)$");
     std::smatch sm;
-    line = trim(line);
-    if (not std::regex_search(line, sm, version_pattern)) {
-        throw Warc_Format_Error(line, "could not parse version: ");
+    std::string line{};
+    while (std::getline(in, line)) {
+        line = trim(line);
+        if (not std::regex_search(line, sm, version_pattern)) {
+            continue;
+        }
+        version = sm.str(1);
+        return true;
     }
-    version = sm.str(1);
-    return in;
+    return false;
 }
 
 void read_fields(std::istream &in, Field_Map &fields) {
@@ -128,6 +127,20 @@ void read_fields(std::istream &in, Field_Map &fields) {
         std::getline(in, line);
     }
 }
+
+bool read_warc_header(std::istream &in, Warc_Record &record) {
+    while (not record.valid()) {
+        if (not read_version(in, record.version_)) {
+            return false;
+        }
+        read_fields(in, record.fields_);
+        if (in.eof()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  *
  * 1. parse version, throw otherwise
@@ -137,19 +150,23 @@ void read_fields(std::istream &in, Field_Map &fields) {
  * 5. done
  *
  */
-
-void read_warc_record(std::istream &in, Warc_Record &record) {
-    read_version(in, record.version_);
-    if (not in.eof()){
-        read_fields(in, record.fields_);
-        if (record.content_length() > 0) {
-            std::size_t length = record.content_length();
-            record.content_.resize(length);
-            in.read(&record.content_[0], length);
-        }
-        in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+bool read_warc_record(std::istream &in, Warc_Record &record) {
+    record.version_.clear();
+    record.fields_.clear();
+    record.content_.clear();
+    if (not read_warc_header(in, record)) {
+        return false;
     }
+    if (record.content_length() > 0) {
+        std::size_t length = record.content_length();
+        record.content_.resize(length);
+        if (not in.read(&record.content_[0], length)) {
+            return false;
+        }
+    }
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    return true;
 }
 
 } // namespace warcpp
