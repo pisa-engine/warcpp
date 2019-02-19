@@ -3,7 +3,6 @@
 
 #include <string>
 
-#include "warcpp/config.hpp"
 #include "warcpp/warcpp.hpp"
 
 using namespace warcpp;
