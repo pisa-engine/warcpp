@@ -3,8 +3,8 @@
 #include <cctype>
 #include <iostream>
 #include <optional>
-#include <regex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace warcpp {
@@ -96,15 +96,14 @@ template <typename StringRange>
 }
 
 bool read_version(std::istream &in, std::string &version) {
-    std::regex version_pattern("^WARC/(.+)$");
-    std::smatch sm;
+    std::string_view prefix = "WARC/";
     std::string line{};
     while (std::getline(in, line)) {
         line = trim(line);
-        if (not std::regex_search(line, sm, version_pattern)) {
+        if (line.size() < 6 or std::string_view(&line[0], prefix.size()) != prefix) {
             continue;
         }
-        version = sm.str(1);
+        version = std::string(std::next(line.begin(), prefix.size()), line.end());
         return true;
     }
     return false;
