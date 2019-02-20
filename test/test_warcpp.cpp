@@ -30,7 +30,7 @@ TEST_CASE("Parse invalid WARC version string", "[warc][unit]")
 
 TEST_CASE("Look for version until EOF", "[warc][unit]")
 {
-    std::istringstream in("\n");
+    std::istringstream in("");
     std::string version = "initial";
     REQUIRE_FALSE(read_version(in, version));
     REQUIRE(version == "initial");
