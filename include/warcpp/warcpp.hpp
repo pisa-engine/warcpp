@@ -6,8 +6,23 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 
 namespace warcpp {
+
+class Warc_Record;
+struct Invalid_Version {
+    std::string version;
+};
+struct Invalid_Field {
+    std::string field;
+};
+struct Missing_Mandatory_Fields {};
+struct Incomplete_Record {};
+using Warc_Error =
+    std::variant<Invalid_Version, Invalid_Field, Missing_Mandatory_Fields, Incomplete_Record>;
+struct None {};
+using Result = std::variant<Warc_Record, None, Warc_Error>;
 
 using Field_Map = std::unordered_map<std::string, std::string>;
 
@@ -16,7 +31,6 @@ class Warc_Format_Error : public std::runtime_error {
     Warc_Format_Error(std::string line, std::string message) : std::runtime_error(message + line) {}
 };
 
-class Warc_Record;
 bool read_warc_record(std::istream &in, Warc_Record &record);
 
 //! A WARC record.
@@ -34,16 +48,16 @@ class Warc_Record {
 
    public:
     Warc_Record() = default;
-    explicit Warc_Record(std::string version)
-        : version_(std::move(version)){}[[nodiscard]] auto type() const -> std::string const & {
-        return fields_.at(Warc_Type);
-    }
+    explicit Warc_Record(std::string version) : version_(std::move(version)) {}
+    [[nodiscard]] auto type() const -> std::string const & { return fields_.at(Warc_Type); }
     [[nodiscard]] auto has(std::string const &field) const noexcept -> bool {
         return fields_.find(field) != fields_.end();
     }
     [[nodiscard]] auto valid() const noexcept -> bool {
-        return has(Warc_Type) && has(Warc_Target_Uri) && has(Warc_Trec_Id) && has(Content_Length) &&
-               type() == Response;
+        return has(Warc_Type) && has(Content_Length);
+    }
+    [[nodiscard]] auto valid_response() const noexcept -> bool {
+        return valid() && has(Warc_Target_Uri) && type() == Response && has(Warc_Trec_Id);
     }
     [[nodiscard]] auto content_length() const -> std::size_t {
         auto &field_value = fields_.at(Content_Length);
@@ -70,6 +84,9 @@ class Warc_Record {
 
     friend bool read_warc_header(std::istream &in, Warc_Record &record);
     friend bool read_warc_record(std::istream &in, Warc_Record &record);
+    friend auto warc_record(std::istream &in) -> Result;
+    friend auto following_warc_record(std::istream &in) -> Result;
+    friend std::ostream &operator<<(std::ostream &os, Warc_Record const &record);
 };
 
 std::string const Warc_Record::Warc_Type       = "warc-type";
@@ -166,6 +183,139 @@ bool read_warc_record(std::istream &in, Warc_Record &record) {
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     return true;
+}
+
+[[nodiscard]] auto version(std::istream &in, std::string &version)
+    -> std::optional<Invalid_Version>
+{
+    std::string_view prefix = "WARC/";
+    std::string line{};
+    if (not std::getline(in, line)) {
+        return Invalid_Version{std::move(line)};
+    }
+    auto trimmed = trim(line);
+    if (trimmed.size() < 6 or std::string_view(&trimmed[0], prefix.size()) != prefix) {
+        return Invalid_Version{std::move(line)};
+    }
+    version = std::string(std::next(trimmed.begin(), prefix.size()), trimmed.end());
+    return std::nullopt;
+}
+
+[[nodiscard]] auto fields(std::istream &in, Field_Map &fields) -> std::optional<Invalid_Field> {
+    std::string line;
+    std::getline(in, line);
+    while (not line.empty() && line != "\r") {
+        auto[name, value] = split(line, ':');
+        if (name.empty() || value.empty()) {
+            return Invalid_Field{line};
+        }
+        name  = trim(name);
+        value = trim(value);
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+            return std::tolower(c);
+        });
+        fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
+        std::getline(in, line);
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] auto warc_record(std::istream &in) -> Result {
+    if (in.eof()) {
+        return None{};
+    }
+    Warc_Record record;
+    if (auto error = version(in, record.version_); error) {
+        return *error;
+    }
+    if (auto error = fields(in, record.fields_); error) {
+        return *error;
+    }
+    if (not record.valid()) {
+        return Missing_Mandatory_Fields{};
+    }
+    if (record.content_length() > 0) {
+        std::size_t length = record.content_length();
+        record.content_.resize(length);
+        if (not in.read(&record.content_[0], length)) {
+            return Incomplete_Record{};
+        }
+    }
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    return record;
+}
+
+[[nodiscard]] auto following_warc_record(std::istream &in) -> Result {
+    if (in.eof()) {
+        return None{};
+    }
+    Warc_Record record;
+    std::optional<Invalid_Version> error;
+    while (error = version(in, record.version_)) {
+        if (in.eof()) {
+            return None{};
+        }
+    }
+    if (auto error = fields(in, record.fields_); error) {
+        return *error;
+    }
+    if (not record.valid()) {
+        return Missing_Mandatory_Fields{};
+    }
+    if (record.content_length() > 0) {
+        std::size_t length = record.content_length();
+        record.content_.resize(length);
+        if (not in.read(&record.content_[0], length)) {
+            return Incomplete_Record{};
+        }
+    }
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    return record;
+}
+
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+template <class... Ts>
+overloaded(Ts...)->overloaded<Ts...>;
+
+template <typename Variant, typename... Handlers>
+auto match(Variant &&value, Handlers &&... handlers) {
+    return std::visit(overloaded{std::forward<Handlers>(handlers)...}, value);
+}
+
+//template <typename Variant, typename... Handlers>
+//auto match(Result const &value, Handlers &&... handlers) {
+//    return std::visit(overloaded{std::forward<Handlers>(handlers)...}, value);
+//}
+
+std::ostream &operator<<(std::ostream &os, Warc_Record const &record) {
+    os << "Warc_Record {";
+    os << "\t" << record.version_ << "\n";
+    for (auto &&[name, value] : record.fields_) {
+        os << "\t" << name << ": " << value << "\n";
+    }
+    return os << "}";
+}
+
+std::ostream &operator<<(std::ostream &os, Warc_Error const &error) {
+    match(error,
+          [&](Invalid_Version const &err) { os << "Invalid_Version(" << err.version << ")"; },
+          [&](Invalid_Field const &err) { os << "Invalid_Field(" << err.field << ")"; },
+          [&](Missing_Mandatory_Fields const &) { os << "Missing_Mandatory_Fields"; },
+          [&](Incomplete_Record const &) { os << "Incomplete_Record"; });
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, Result const &result) {
+    match(result,
+          [&](Warc_Record const &record) { os << record; },
+          [&](None const &) { os << "None"; },
+          [&](Warc_Error const &error) { os << error; });
+    return os;
 }
 
 } // namespace warcpp
