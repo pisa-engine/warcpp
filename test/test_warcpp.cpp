@@ -6,20 +6,7 @@
 #include "warcpp/warcpp.hpp"
 
 using namespace warcpp;
-
-TEST_CASE("--- Parse WARC version", "[warc][unit]")
-{
-    std::string input = GENERATE(as<std::string>(),
-                                 "WARC/0.18",
-                                 "WARC/0.18\nUnrelated text",
-                                 "\n\n\nWARC/0.18\nUnrelated text");
-    GIVEN("Input: " << input) {
-        std::istringstream in("WARC/0.18\nUnrelated text");
-        std::string        version;
-        REQUIRE(warcpp::version(in, version) == std::nullopt);
-        REQUIRE(version == "0.18");
-    }
-}
+using namespace warcpp::detail;
 
 TEST_CASE("Parse WARC version", "[warc][unit]")
 {
@@ -27,10 +14,11 @@ TEST_CASE("Parse WARC version", "[warc][unit]")
                                  "WARC/0.18",
                                  "WARC/0.18\nUnrelated text",
                                  "\n\n\nWARC/0.18\nUnrelated text");
-    GIVEN("Input: " << input) {
+    GIVEN("Input: " << input)
+    {
         std::istringstream in("WARC/0.18\nUnrelated text");
-        std::string        version;
-        read_version(in, version);
+        std::string version;
+        REQUIRE(read_version(in, version) == std::nullopt);
         REQUIRE(version == "0.18");
     }
 }
@@ -39,29 +27,14 @@ TEST_CASE("--- Parse invalid WARC version string", "[warc][unit]")
 {
     std::istringstream in("INVALID_STRING");
     std::string version;
-    REQUIRE(warcpp::version(in, version)->version == "INVALID_STRING");
-}
-
-TEST_CASE("Parse invalid WARC version string", "[warc][unit]")
-{
-    std::istringstream in("INVALID_STRING");
-    std::string version;
-    REQUIRE_FALSE(read_version(in, version));
+    REQUIRE(read_version(in, version)->version == "INVALID_STRING");
 }
 
 TEST_CASE("--- Look for version until EOF", "[warc][unit]")
 {
     std::istringstream in("");
     std::string version = "initial";
-    REQUIRE(warcpp::version(in, version)->version == "");
-    REQUIRE(version == "initial");
-}
-
-TEST_CASE("Look for version until EOF", "[warc][unit]")
-{
-    std::istringstream in("");
-    std::string version = "initial";
-    REQUIRE_FALSE(read_version(in, version));
+    REQUIRE(read_version(in, version)->version == "");
     REQUIRE(version == "initial");
 }
 
@@ -82,39 +55,7 @@ TEST_CASE("--- Parse valid fields", "[warc][unit]")
         std::istringstream in(input);
         WHEN("Parse fields") {
             Field_Map fields;
-            REQUIRE(warcpp::fields(in, fields) == std::nullopt);
-            THEN("Read fields are lowercase and stripped") {
-                CHECK(fields["warc-type"] == "warcinfo");
-                CHECK(fields["content-type"] == "application/warc-fields");
-                CHECK(fields["content-length"] == "9");
-            }
-            THEN("Two trailing newlines are skipped") {
-                std::ostringstream os;
-                os << in.rdbuf();
-                REQUIRE(os.str() == "REMAINDER");
-            }
-        }
-    }
-}
-
-TEST_CASE("Parse valid fields", "[warc][unit]")
-{
-    std::string input = GENERATE(as<std::string>(),
-                                 "WARC-Type: warcinfo\n"
-                                 "Content-Type  : application/warc-fields\n"
-                                 "Content-Length: 9    \n"
-                                 "\n"
-                                 "REMAINDER",
-                                 "WARC-Type: warcinfo\n"
-                                 "Content-Type  : application/warc-fields\n"
-                                 "Content-Length: 9    \r\n"
-                                 "\r\n"
-                                 "REMAINDER");
-    GIVEN("A valid list of fields") {
-        std::istringstream in(input);
-        WHEN("Parse fields") {
-            Field_Map fields;
-            read_fields(in, fields);
+            REQUIRE(read_fields(in, fields) == std::nullopt);
             THEN("Read fields are lowercase and stripped") {
                 CHECK(fields["warc-type"] == "warcinfo");
                 CHECK(fields["content-type"] == "application/warc-fields");
@@ -135,18 +76,8 @@ TEST_CASE("--- Parse invalid fields", "[warc][unit]")
     GIVEN("Field input: '" << input << "'") {
         std::istringstream in(input);
         Field_Map          fields;
-        REQUIRE(warcpp::fields(in, fields)->field ==
+        REQUIRE(read_fields(in, fields)->field ==
                 std::string(input.begin(), std::prev(input.end())));
-    }
-}
-
-TEST_CASE("Parse invalid fields", "[warc][unit]")
-{
-    std::string input = GENERATE(as<std::string>(), "invalidfield\n", "invalid:\n", ":value\n");
-    GIVEN("Field input: '" << input << "'") {
-        std::istringstream in(input);
-        Field_Map          fields;
-        REQUIRE_THROWS_AS(read_fields(in, fields), Warc_Format_Error);
     }
 }
 
@@ -170,15 +101,7 @@ std::string warcinfo() {
 TEST_CASE("--- Parse warcinfo record", "[warc][unit]")
 {
     std::istringstream in(warcinfo());
-    REQUIRE_NOTHROW(std::get<Warc_Record>(warc_record(in)));
-    CHECK(in.peek() == EOF);
-}
-
-TEST_CASE("Parse warcinfo record", "[warc][unit]")
-{
-    std::istringstream in(warcinfo());
-    Warc_Record record;
-    read_warc_record(in, record);
+    REQUIRE_NOTHROW(as_record(read_record(in)));
     CHECK(in.peek() == EOF);
 }
 
@@ -211,30 +134,7 @@ std::string response() {
 
 TEST_CASE("--- Parse response record", "[warc][unit]") {
     std::istringstream in(response());
-    Warc_Record record = std::get<Warc_Record>(warc_record(in));
-    CHECK(in.peek() == EOF);
-    CHECK(record.type() == "response");
-    CHECK(record.content() ==
-          "HTTP/1.1 200 OK\r\n"
-          "Server: lumanau.web.id\r\n"
-          "Date: Fri, 10 Feb 2012 22:27:52 GMT\r\n"
-          "Content-Type: text/plain\r\n"
-          "Connection: close\r\n"
-          "X-Powered-By: PHP/5.3.8\r\n"
-          "Set-Cookie: "
-          "w3tc_referrer=http%3A%2F%2Frajakarcis.com%2F2012%2F02%2F07%2Fgbh-the-england-legend-"
-          "punk-rock%2F; path=/cms/\r\n"
-          "Cluster: vm-2\r\n"
-          "\r\n"
-          "XML-RPC server accepts POST requests only.");
-    CHECK(record.url() == "http://rajakarcis.com/cms/xmlrpc.php");
-    CHECK(record.trecid() == "clueweb12-0000tw-00-00055");
-}
-
-TEST_CASE("Parse response record", "[warc][unit]") {
-    std::istringstream in(response());
-    Warc_Record        record;
-    read_warc_record(in, record);
+    Record record = as_record(read_record(in));
     CHECK(in.peek() == EOF);
     CHECK(record.type() == "response");
     CHECK(record.content() ==
@@ -261,50 +161,11 @@ TEST_CASE("--- Check if parsed record is valid (has required fields)", "[warc][u
     GIVEN("A record that can be parsed") {
         std::istringstream in(input);
         WHEN("Parse fields") {
-            auto record = std::get<Warc_Record>(warc_record(in));
+            auto record = as_record(read_record(in));
             THEN("The record is " << (valid ? "valid" : "invalid")) {
                 CHECK(record.valid_response() == valid);
             }
         }
-    }
-}
-
-TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]")
-{
-    auto [input, valid] =
-        GENERATE(table<std::string, bool>({{warcinfo(), false}, {response(), true}}));
-    GIVEN("A record that can be parsed") {
-        std::istringstream in(input);
-        WHEN("Parse fields") {
-            Warc_Record record;
-            read_warc_record(in, record);
-            THEN("The record is " << (valid ? "valid" : "invalid")) {
-                CHECK(record.valid_response() == valid);
-            }
-        }
-    }
-}
-
-TEST_CASE("Parse invalid content-length", "[warc][unit]")
-{
-    GIVEN("A record with invalid WARC length") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "Content-Length: INVALID\n"
-            "\n"
-            "HTTP/1.1 200 OK\n"
-            "Content-Length: 10\n");
-        Warc_Record record;
-        REQUIRE_FALSE(read_warc_record(in, record));
-    }
-    GIVEN("A record with WARC length == 0") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "Content-Length: 0\n"
-            "\n");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content_length() == 0);
     }
 }
 
@@ -342,64 +203,15 @@ TEST_CASE("--- Parse multiple records", "[warc][unit]")
             "\n"
             "HTTP_CONTENT2");
         ;
-        CHECK(std::get<Warc_Record>(warc_record(in)).content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
-        CHECK(std::get<Warc_Record>(warc_record(in)).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
-    }
-}
-
-TEST_CASE("Parse multiple records", "[warc][unit]")
-{
-    GIVEN("Two records") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "WARC-Type: response\n"
-            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
-            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
-            "WARC-Date: 2009-03-65T08:43:19-0800\n"
-            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
-            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
-            "Content-Type: application/http;msgtype=response\n"
-            "WARC-Identified-Payload-Type: \n"
-            "Content-Length: 27\n"
-            "\n"
-            "HTTP_HEADER1\n"
-            "\n"
-            "HTTP_CONTENT1\n"
-            "\n"
-            "WARC/0.18\n"
-            "WARC-Type: response\n"
-            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
-            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
-            "WARC-Date: 2009-03-65T08:43:19-0800\n"
-            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
-            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
-            "Content-Type: application/http;msgtype=response\n"
-            "WARC-Identified-Payload-Type: \n"
-            "Content-Length: 27\n"
-            "\n"
-            "HTTP_HEADER2\n"
-            "\n"
-            "HTTP_CONTENT2");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        CHECK(as_record(read_record(in)).content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+        CHECK(as_record(read_record(in)).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
     }
 }
 
 TEST_CASE("--- Parse empty record", "[warc][unit]")
 {
     std::istringstream in("\n");
-    REQUIRE_NOTHROW(std::get<Invalid_Version>(std::get<Warc_Error>(warc_record(in))));
-}
-
-TEST_CASE("Parse empty record", "[warc][unit]")
-{
-    std::istringstream in("\n");
-    Warc_Record record;
-    REQUIRE_NOTHROW(read_warc_record(in, record));
-    REQUIRE(not record.valid());
+    REQUIRE_NOTHROW(std::get<Invalid_Version>(as_error(read_record(in))));
 }
 
 TEST_CASE("--- Skip corrupted record", "[warc][unit]")
@@ -437,63 +249,23 @@ TEST_CASE("--- Skip corrupted record", "[warc][unit]")
             "HTTP_CONTENT2");
         WHEN("Read first record")
         {
-            auto record = warc_record(in);
+            auto record = read_record(in);
             THEN("Record is invalid") {
-                REQUIRE_NOTHROW(std::get<Missing_Mandatory_Fields>(std::get<Warc_Error>(record)));
+                REQUIRE_NOTHROW(std::get<Missing_Mandatory_Fields>(as_error(record)));
             }
             AND_WHEN("Read following record") {
-                record = following_warc_record(in);
+                record = read_subsequent_record(in);
                 THEN("Record is valid") {
-                    REQUIRE_NOTHROW(std::get<Warc_Record>(record));
-                    CHECK(std::get<Warc_Record>(record).content() ==
-                          "HTTP_HEADER2\n\nHTTP_CONTENT2");
+                    REQUIRE_NOTHROW(as_record(record));
+                    CHECK(as_record(record).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
                 }
                 AND_WHEN("Read another record") {
-                    record = following_warc_record(in);
+                    record = read_subsequent_record(in);
                     THEN("No more records found") {
-                        REQUIRE_NOTHROW(std::get<Invalid_Version>(std::get<Warc_Error>(record)));
+                        REQUIRE_NOTHROW(std::get<Invalid_Version>(as_error(record)));
                     }
                 }
             }
         }
-    }
-}
-
-TEST_CASE("Skip corrupted record", "[warc][unit]")
-{
-    GIVEN("Two records") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "WARC-Type: response\n"
-            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
-            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
-            "WARC-Date: 2009-03-65T08:43:19-0800\n\n" // <- corrupted
-            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
-            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
-            "Content-Type: application/http;msgtype=response\n"
-            "WARC-Identified-Payload-Type: \n"
-            "Content-Length: 27\n"
-            "\n"
-            "HTTP_HEADER1\n"
-            "\n"
-            "HTTP_CONTENT1\n"
-            "\n"
-            "WARC/0.18\n"
-            "WARC-Type: response\n"
-            "WARC-Target-URI: http://00000-nrt-realestate.homepagestartup.com/\n"
-            "WARC-Warcinfo-ID: 993d3969-9643-4934-b1c6-68d4dbe55b83\n"
-            "WARC-Date: 2009-03-65T08:43:19-0800\n"
-            "WARC-Record-ID: <urn:uuid:67f7cabd-146c-41cf-bd01-04f5fa7d5229>\n"
-            "WARC-TREC-ID: clueweb09-en0000-00-00000\n"
-            "Content-Type: application/http;msgtype=response\n"
-            "WARC-Identified-Payload-Type: \n"
-            "Content-Length: 27\n"
-            "\n"
-            "HTTP_HEADER2\n"
-            "\n"
-            "HTTP_CONTENT2");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
     }
 }

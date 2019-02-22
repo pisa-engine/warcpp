@@ -10,33 +10,95 @@
 
 namespace warcpp {
 
-class Warc_Record;
-struct Invalid_Version {
-    std::string version;
-};
-struct Invalid_Field {
-    std::string field;
-};
+struct Invalid_Version { std::string version; };
+struct Invalid_Field { std::string field; };
 struct Missing_Mandatory_Fields {};
 struct Incomplete_Record {};
-using Warc_Error =
-    std::variant<Invalid_Version, Invalid_Field, Missing_Mandatory_Fields, Incomplete_Record>;
-using Result = std::variant<Warc_Record, Warc_Error>;
+using Error = std::variant<Invalid_Version,
+                           Invalid_Field,
+                           Missing_Mandatory_Fields,
+                           Incomplete_Record>;
+class Record;
+using Result = std::variant<Record, Error>;
 
-using Field_Map = std::unordered_map<std::string, std::string>;
+namespace detail {
 
-class Warc_Format_Error : public std::runtime_error {
-   public:
-    Warc_Format_Error(std::string line, std::string message) : std::runtime_error(message + line) {}
-};
+    using Field_Map = std::unordered_map<std::string, std::string>;
 
-bool read_warc_record(std::istream &in, Warc_Record &record);
+    template <class... Ts>
+    struct overloaded : Ts... {
+        using Ts::operator()...;
+    };
 
-//! A WARC record.
-class Warc_Record {
+    template <class... Ts>
+    overloaded(Ts...)->overloaded<Ts...>;
+
+    template <typename StringRange>
+    [[nodiscard]] std::pair<StringRange, StringRange> split(StringRange str, char delim)
+    {
+        auto split_pos = std::find(str.begin(), str.end(), delim);
+        auto second_begin = split_pos != str.end() ? std::next(split_pos) : split_pos;
+        return {{str.begin(), split_pos}, {second_begin, str.end()}};
+    }
+
+    template <typename StringRange>
+    [[nodiscard]] std::string trim(StringRange str)
+    {
+        auto begin = str.begin();
+        auto end = str.end();
+        begin = std::find_if_not(begin, end, [](char c) { return std::isspace(c); });
+        end = std::find_if(begin, end, [](char c) { return std::isspace(c); });
+        return StringRange(begin, end);
+    }
+
+    [[nodiscard]] auto read_fields(std::istream &in, Field_Map &fields)
+        -> std::optional<Invalid_Field>
+    {
+        std::string line;
+        std::getline(in, line);
+        while (not line.empty() && line != "\r") {
+            auto [name, value] = split(line, ':');
+            if (name.empty() || value.empty()) {
+                return Invalid_Field{line};
+            }
+            name = trim(name);
+            value = trim(value);
+            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+                return std::tolower(c);
+            });
+            fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
+            std::getline(in, line);
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] auto read_version(std::istream &in, std::string &version)
+        -> std::optional<Invalid_Version>
+    {
+        std::string_view prefix = "WARC/";
+        std::string line{};
+        if (not std::getline(in, line)) {
+            return Invalid_Version{std::move(line)};
+        }
+        auto trimmed = trim(line);
+        if (trimmed.size() < 6 or std::string_view(&trimmed[0], prefix.size()) != prefix) {
+            return Invalid_Version{std::move(line)};
+        }
+        version = std::string(std::next(trimmed.begin(), prefix.size()), trimmed.end());
+        return std::nullopt;
+    }
+
+}; // namespace detail
+
+template <typename Variant, typename... Handlers>
+auto match(Variant &&value, Handlers &&... handlers) {
+    return std::visit(detail::overloaded{std::forward<Handlers>(handlers)...}, value);
+}
+
+class Record {
    private:
     std::string version_;
-    Field_Map   fields_;
+    detail::Field_Map fields_;
     std::string content_;
 
     static std::string const Warc_Type;
@@ -46,8 +108,8 @@ class Warc_Record {
     static std::string const Response;
 
    public:
-    Warc_Record() = default;
-    explicit Warc_Record(std::string version) : version_(std::move(version)) {}
+    Record() = default;
+    explicit Record(std::string version) : version_(std::move(version)) {}
     [[nodiscard]] auto type() const -> std::string const & { return fields_.at(Warc_Type); }
     [[nodiscard]] auto has(std::string const &field) const noexcept -> bool {
         return fields_.find(field) != fields_.end();
@@ -63,7 +125,9 @@ class Warc_Record {
         try {
             return std::stoi(field_value);
         } catch (std::invalid_argument &error) {
-            throw Warc_Format_Error(field_value, "could not parse content length: ");
+            std::ostringstream os;
+            os << "could not parse content length: " << field_value;
+            throw std::runtime_error(os.str());
         }
     }
     [[nodiscard]] auto content() -> std::string & { return content_; }
@@ -81,80 +145,37 @@ class Warc_Record {
         return std::nullopt;
     }
 
-    friend bool read_warc_header(std::istream &in, Warc_Record &record);
-    friend bool read_warc_record(std::istream &in, Warc_Record &record);
-    friend auto warc_record(std::istream &in) -> Result;
-    friend auto following_warc_record(std::istream &in) -> Result;
-    friend std::ostream &operator<<(std::ostream &os, Warc_Record const &record);
+    friend auto read_record(std::istream &in) -> Result;
+    friend auto read_subsequent_record(std::istream &in) -> Result;
+    friend std::ostream &operator<<(std::ostream &os, Record const &record);
 };
 
-std::string const Warc_Record::Warc_Type       = "warc-type";
-std::string const Warc_Record::Warc_Target_Uri = "warc-target-uri";
-std::string const Warc_Record::Warc_Trec_Id    = "warc-trec-id";
-std::string const Warc_Record::Content_Length  = "content-length";
-std::string const Warc_Record::Response        = "response";
-
-
-template <typename StringRange>
-[[nodiscard]] std::pair<StringRange, StringRange> split(StringRange str, char delim) {
-    auto split_pos    = std::find(str.begin(), str.end(), delim);
-    auto second_begin = split_pos != str.end() ? std::next(split_pos) : split_pos;
-    return {{str.begin(), split_pos}, {second_begin, str.end()}};
+constexpr Record &as_record(Result &result) { return std::get<Record>(result); }
+constexpr Record &&as_record(Result &&result)
+{
+    return std::get<Record>(std::forward<Result>(result));
+}
+constexpr Record const &as_record(Result const &result) { return std::get<Record>(result); }
+constexpr Record const &&as_record(Result const &&result)
+{
+    return std::get<Record>(std::forward<Result const>(result));
+}
+constexpr Error &as_error(Result &result) { return std::get<Error>(result); }
+constexpr Error &&as_error(Result &&result)
+{
+    return std::get<Error>(std::forward<Result>(result));
+}
+constexpr Error const &as_error(Result const &result) { return std::get<Error>(result); }
+constexpr Error const &&as_error(Result const &&result)
+{
+    return std::get<Error>(std::forward<Result const>(result));
 }
 
-template <typename StringRange>
-[[nodiscard]] std::string trim(StringRange str) {
-    auto begin = str.begin();
-    auto end   = str.end();
-    begin      = std::find_if_not(begin, end, [](char c) { return std::isspace(c); });
-    end        = std::find_if(begin, end, [](char c) { return std::isspace(c); });
-    return StringRange(begin, end);
-}
-
-bool read_version(std::istream &in, std::string &version) {
-    std::string_view prefix = "WARC/";
-    std::string line{};
-    while (std::getline(in, line)) {
-        line = trim(line);
-        if (line.size() < 6 or std::string_view(&line[0], prefix.size()) != prefix) {
-            continue;
-        }
-        version = std::string(std::next(line.begin(), prefix.size()), line.end());
-        return true;
-    }
-    return false;
-}
-
-void read_fields(std::istream &in, Field_Map &fields) {
-    std::string line;
-    std::getline(in, line);
-    while (not line.empty() && line != "\r") {
-        auto[name, value] = split(line, ':');
-        if (name.empty() || value.empty()) {
-            throw Warc_Format_Error(line, "could not parse field: ");
-        }
-        name  = trim(name);
-        value = trim(value);
-        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
-            return std::tolower(c);
-        });
-        fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
-        std::getline(in, line);
-    }
-}
-
-bool read_warc_header(std::istream &in, Warc_Record &record) {
-    while (not record.valid()) {
-        if (not read_version(in, record.version_)) {
-            return false;
-        }
-        read_fields(in, record.fields_);
-        if (in.eof()) {
-            return false;
-        }
-    }
-    return true;
-}
+std::string const Record::Warc_Type = "warc-type";
+std::string const Record::Warc_Target_Uri = "warc-target-uri";
+std::string const Record::Warc_Trec_Id = "warc-trec-id";
+std::string const Record::Content_Length = "content-length";
+std::string const Record::Response = "response";
 
 /**
  *
@@ -165,123 +186,60 @@ bool read_warc_header(std::istream &in, Warc_Record &record) {
  * 5. done
  *
  */
-bool read_warc_record(std::istream &in, Warc_Record &record) {
-    record.version_.clear();
-    record.fields_.clear();
-    record.content_.clear();
-    if (not read_warc_header(in, record)) {
-        return false;
-    }
-    if (record.content_length() > 0) {
-        std::size_t length = record.content_length();
-        record.content_.resize(length);
-        if (not in.read(&record.content_[0], length)) {
-            return false;
-        }
-    }
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return true;
-}
-
-[[nodiscard]] auto version(std::istream &in, std::string &version)
-    -> std::optional<Invalid_Version>
+[[nodiscard]] auto read_record(std::istream &in) -> Result
 {
-    std::string_view prefix = "WARC/";
-    std::string line{};
-    if (not std::getline(in, line)) {
-        return Invalid_Version{std::move(line)};
+    Record record;
+    if (auto error = detail::read_version(in, record.version_); error) {
+        return Result(*error);
     }
-    auto trimmed = trim(line);
-    if (trimmed.size() < 6 or std::string_view(&trimmed[0], prefix.size()) != prefix) {
-        return Invalid_Version{std::move(line)};
-    }
-    version = std::string(std::next(trimmed.begin(), prefix.size()), trimmed.end());
-    return std::nullopt;
-}
-
-[[nodiscard]] auto fields(std::istream &in, Field_Map &fields) -> std::optional<Invalid_Field> {
-    std::string line;
-    std::getline(in, line);
-    while (not line.empty() && line != "\r") {
-        auto[name, value] = split(line, ':');
-        if (name.empty() || value.empty()) {
-            return Invalid_Field{line};
-        }
-        name  = trim(name);
-        value = trim(value);
-        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
-            return std::tolower(c);
-        });
-        fields[std::string(name.begin(), name.end())] = std::string(value.begin(), value.end());
-        std::getline(in, line);
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] auto warc_record(std::istream &in) -> Result {
-    Warc_Record record;
-    if (auto error = version(in, record.version_); error) {
-        return *error;
-    }
-    if (auto error = fields(in, record.fields_); error) {
-        return *error;
+    if (auto error = detail::read_fields(in, record.fields_); error) {
+        return Result(*error);
     }
     if (not record.valid()) {
-        return Missing_Mandatory_Fields{};
+        return Result(Missing_Mandatory_Fields{});
     }
     if (record.content_length() > 0) {
         std::size_t length = record.content_length();
         record.content_.resize(length);
         if (not in.read(&record.content_[0], length)) {
-            return Incomplete_Record{};
+            return Result(Incomplete_Record{});
         }
     }
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return record;
+    return Result(record);
 }
 
-[[nodiscard]] auto following_warc_record(std::istream &in) -> Result {
-    Warc_Record record;
+[[nodiscard]] auto read_subsequent_record(std::istream &in) -> Result
+{
+    Record record;
     std::optional<Invalid_Version> error;
-    while (error = version(in, record.version_)) {
+    while (error = detail::read_version(in, record.version_)) {
         if (in.eof()) {
-            return Invalid_Version{};
+            return Result(Invalid_Version{});
         }
     }
-    if (auto error = fields(in, record.fields_); error) {
-        return *error;
+    if (auto error = detail::read_fields(in, record.fields_); error) {
+        return Result(*error);
     }
     if (not record.valid()) {
-        return Missing_Mandatory_Fields{};
+        return Result(Missing_Mandatory_Fields{});
     }
     if (record.content_length() > 0) {
         std::size_t length = record.content_length();
         record.content_.resize(length);
         if (not in.read(&record.content_[0], length)) {
-            return Incomplete_Record{};
+            return Result(Incomplete_Record{});
         }
     }
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return record;
+    return Result(record);
 }
 
-template <class... Ts>
-struct overloaded : Ts... {
-    using Ts::operator()...;
-};
-template <class... Ts>
-overloaded(Ts...)->overloaded<Ts...>;
-
-template <typename Variant, typename... Handlers>
-auto match(Variant &&value, Handlers &&... handlers) {
-    return std::visit(overloaded{std::forward<Handlers>(handlers)...}, value);
-}
-
-std::ostream &operator<<(std::ostream &os, Warc_Record const &record) {
-    os << "Warc_Record {";
+std::ostream &operator<<(std::ostream &os, Record const &record)
+{
+    os << "Record {";
     os << "\t" << record.version_ << "\n";
     for (auto &&[name, value] : record.fields_) {
         os << "\t" << name << ": " << value << "\n";
@@ -289,7 +247,8 @@ std::ostream &operator<<(std::ostream &os, Warc_Record const &record) {
     return os << "}";
 }
 
-std::ostream &operator<<(std::ostream &os, Warc_Error const &error) {
+std::ostream &operator<<(std::ostream &os, Error const &error)
+{
     match(error,
           [&](Invalid_Version const &err) { os << "Invalid_Version(" << err.version << ")"; },
           [&](Invalid_Field const &err) { os << "Invalid_Field(" << err.field << ")"; },
@@ -298,10 +257,11 @@ std::ostream &operator<<(std::ostream &os, Warc_Error const &error) {
     return os;
 }
 
-std::ostream &operator<<(std::ostream &os, Result const &result) {
+std::ostream &operator<<(std::ostream &os, Result const &result)
+{
     match(result,
-          [&](Warc_Record const &record) { os << record; },
-          [&](Warc_Error const &error) { os << error; });
+          [&](Record const &record) { os << record; },
+          [&](Error const &error) { os << error; });
     return os;
 }
 
