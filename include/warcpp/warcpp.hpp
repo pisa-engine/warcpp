@@ -150,6 +150,8 @@ class Record {
     friend std::ostream &operator<<(std::ostream &os, Record const &record);
 };
 
+constexpr bool holds_record(Result const &result) { return std::holds_alternative<Record>(result); }
+
 constexpr Record &as_record(Result &result) { return std::get<Record>(result); }
 constexpr Record &&as_record(Result &&result)
 {
