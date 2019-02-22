@@ -450,7 +450,9 @@ TEST_CASE("--- Skip corrupted record", "[warc][unit]")
                 }
                 AND_WHEN("Read another record") {
                     record = following_warc_record(in);
-                    THEN("No more records found") { REQUIRE_NOTHROW(std::get<None>(record)); }
+                    THEN("No more records found") {
+                        REQUIRE_NOTHROW(std::get<Invalid_Version>(std::get<Warc_Error>(record)));
+                    }
                 }
             }
         }

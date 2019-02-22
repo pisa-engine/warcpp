@@ -21,8 +21,7 @@ struct Missing_Mandatory_Fields {};
 struct Incomplete_Record {};
 using Warc_Error =
     std::variant<Invalid_Version, Invalid_Field, Missing_Mandatory_Fields, Incomplete_Record>;
-struct None {};
-using Result = std::variant<Warc_Record, None, Warc_Error>;
+using Result = std::variant<Warc_Record, Warc_Error>;
 
 using Field_Map = std::unordered_map<std::string, std::string>;
 
@@ -221,9 +220,6 @@ bool read_warc_record(std::istream &in, Warc_Record &record) {
 }
 
 [[nodiscard]] auto warc_record(std::istream &in) -> Result {
-    if (in.eof()) {
-        return None{};
-    }
     Warc_Record record;
     if (auto error = version(in, record.version_); error) {
         return *error;
@@ -247,14 +243,11 @@ bool read_warc_record(std::istream &in, Warc_Record &record) {
 }
 
 [[nodiscard]] auto following_warc_record(std::istream &in) -> Result {
-    if (in.eof()) {
-        return None{};
-    }
     Warc_Record record;
     std::optional<Invalid_Version> error;
     while (error = version(in, record.version_)) {
         if (in.eof()) {
-            return None{};
+            return Invalid_Version{};
         }
     }
     if (auto error = fields(in, record.fields_); error) {
@@ -287,11 +280,6 @@ auto match(Variant &&value, Handlers &&... handlers) {
     return std::visit(overloaded{std::forward<Handlers>(handlers)...}, value);
 }
 
-//template <typename Variant, typename... Handlers>
-//auto match(Result const &value, Handlers &&... handlers) {
-//    return std::visit(overloaded{std::forward<Handlers>(handlers)...}, value);
-//}
-
 std::ostream &operator<<(std::ostream &os, Warc_Record const &record) {
     os << "Warc_Record {";
     os << "\t" << record.version_ << "\n";
@@ -313,7 +301,6 @@ std::ostream &operator<<(std::ostream &os, Warc_Error const &error) {
 std::ostream &operator<<(std::ostream &os, Result const &result) {
     match(result,
           [&](Warc_Record const &record) { os << record; },
-          [&](None const &) { os << "None"; },
           [&](Warc_Error const &error) { os << error; });
     return os;
 }
