@@ -91,7 +91,8 @@ namespace detail {
 }; // namespace detail
 
 template <typename Variant, typename... Handlers>
-auto match(Variant &&value, Handlers &&... handlers) {
+auto match(Variant &&value, Handlers &&... handlers)
+{
     return std::visit(detail::overloaded{std::forward<Handlers>(handlers)...}, value);
 }
 
@@ -111,16 +112,20 @@ class Record {
     Record() = default;
     explicit Record(std::string version) : version_(std::move(version)) {}
     [[nodiscard]] auto type() const -> std::string const & { return fields_.at(Warc_Type); }
-    [[nodiscard]] auto has(std::string const &field) const noexcept -> bool {
+    [[nodiscard]] auto has(std::string const &field) const noexcept -> bool
+    {
         return fields_.find(field) != fields_.end();
     }
-    [[nodiscard]] auto valid() const noexcept -> bool {
+    [[nodiscard]] auto valid() const noexcept -> bool
+    {
         return has(Warc_Type) && has(Content_Length);
     }
-    [[nodiscard]] auto valid_response() const noexcept -> bool {
+    [[nodiscard]] auto valid_response() const noexcept -> bool
+    {
         return valid() && has(Warc_Target_Uri) && type() == Response && has(Warc_Trec_Id);
     }
-    [[nodiscard]] auto content_length() const -> std::size_t {
+    [[nodiscard]] auto content_length() const -> std::size_t
+    {
         auto &field_value = fields_.at(Content_Length);
         try {
             return std::stoi(field_value);
@@ -132,13 +137,10 @@ class Record {
     }
     [[nodiscard]] auto content() -> std::string & { return content_; }
     [[nodiscard]] auto content() const -> std::string const & { return content_; }
-    [[nodiscard]] auto url() const -> std::string const & {
-        return fields_.at(Warc_Target_Uri);
-    }
-    [[nodiscard]] auto trecid() const -> std::string const & {
-        return fields_.at(Warc_Trec_Id);
-    }
-    [[nodiscard]] auto field(std::string const &name) const -> std::optional<std::string> {
+    [[nodiscard]] auto url() const -> std::string const & { return fields_.at(Warc_Target_Uri); }
+    [[nodiscard]] auto trecid() const -> std::string const & { return fields_.at(Warc_Trec_Id); }
+    [[nodiscard]] auto field(std::string const &name) const -> std::optional<std::string>
+    {
         if (auto pos = fields_.find(name); pos != fields_.end()) {
             return pos->second;
         }
@@ -216,7 +218,7 @@ std::string const Record::Response = "response";
 {
     Record record;
     std::optional<Invalid_Version> error;
-    while (error = detail::read_version(in, record.version_)) {
+    while ((error = detail::read_version(in, record.version_))) {
         if (in.eof()) {
             return Result(Invalid_Version{});
         }

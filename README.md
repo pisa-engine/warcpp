@@ -81,7 +81,7 @@ std::size_t total_content_size(std::ifstream& is)
     while (not is.eof())
     {
         auto record = warcpp::read_subsequent_record(in);
-        if (has_record(record)) {
+        if (holds_record(record)) {
             total += as_record(record).content_length();
         }
         else {
