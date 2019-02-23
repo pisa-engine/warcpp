@@ -90,12 +90,6 @@ namespace detail {
 
 }; // namespace detail
 
-template <typename Variant, typename... Handlers>
-auto match(Variant &&value, Handlers &&... handlers)
-{
-    return std::visit(detail::overloaded{std::forward<Handlers>(handlers)...}, value);
-}
-
 class Record {
    private:
     std::string version_;
@@ -151,6 +145,59 @@ class Record {
     friend auto read_subsequent_record(std::istream &in) -> Result;
     friend std::ostream &operator<<(std::ostream &os, Record const &record);
 };
+
+template <typename Record_Handler, typename Error_Handler>
+auto match(Result const &result, Record_Handler &&record_handler, Error_Handler &&error_handler)
+{
+    if (auto *record = std::get_if<Record>(&result); record != nullptr) {
+        if constexpr (std::is_same_v<decltype(record_handler(*record)), void>) {
+            record_handler(*record);
+        } else {
+            return record_handler(*record);
+        }
+    } else {
+        auto *error = std::get_if<Error>(&result);
+        if constexpr (std::is_same_v<decltype(error_handler(*error)), void>) {
+            error_handler(*error);
+        } else {
+            return error_handler(*error);
+        }
+    }
+}
+
+template <typename IV_Handler, typename IF_Handler, typename MMF_Handler, typename IR_Handler>
+auto match(Error const &error,
+           IV_Handler &&iv_handler,
+           IF_Handler &&if_handler,
+           MMF_Handler &&mmf_handler,
+           IR_Handler &&ir_handler)
+{
+    if (auto *iv = std::get_if<Invalid_Version>(&error); iv != nullptr) {
+        if constexpr (std::is_same_v<decltype(iv_handler(*iv)), void>) {
+            iv_handler(*iv);
+        } else {
+            return iv_handler(*iv);
+        }
+    } else if (auto *ife = std::get_if<Invalid_Field>(&error); ife != nullptr) {
+        if constexpr (std::is_same_v<decltype(if_handler(*ife)), void>) {
+            if_handler(*ife);
+        } else {
+            return if_handler(*ife);
+        }
+    } else if (auto *mmf = std::get_if<Missing_Mandatory_Fields>(&error); mmf != nullptr) {
+        if constexpr (std::is_same_v<decltype(mmf_handler(*mmf)), void>) {
+            mmf_handler(*mmf);
+        } else {
+            return mmf_handler(*mmf);
+        }
+    } else if (auto *ir = std::get_if<Incomplete_Record>(&error); ir != nullptr) {
+        if constexpr (std::is_same_v<decltype(ir_handler(*ir)), void>) {
+            ir_handler(*ir);
+        } else {
+            return ir_handler(*ir);
+        }
+    }
+}
 
 constexpr bool holds_record(Result const &result) { return std::holds_alternative<Record>(result); }
 
