@@ -154,27 +154,6 @@ class Record {
 
 constexpr bool holds_record(Result const &result) { return std::holds_alternative<Record>(result); }
 
-constexpr Record &as_record(Result &result) { return std::get<Record>(result); }
-constexpr Record &&as_record(Result &&result)
-{
-    return std::get<Record>(std::forward<Result>(result));
-}
-constexpr Record const &as_record(Result const &result) { return std::get<Record>(result); }
-constexpr Record const &&as_record(Result const &&result)
-{
-    return std::get<Record>(std::forward<Result const>(result));
-}
-constexpr Error &as_error(Result &result) { return std::get<Error>(result); }
-constexpr Error &&as_error(Result &&result)
-{
-    return std::get<Error>(std::forward<Result>(result));
-}
-constexpr Error const &as_error(Result const &result) { return std::get<Error>(result); }
-constexpr Error const &&as_error(Result const &&result)
-{
-    return std::get<Error>(std::forward<Result const>(result));
-}
-
 std::string const Record::Warc_Type = "warc-type";
 std::string const Record::Warc_Target_Uri = "warc-target-uri";
 std::string const Record::Warc_Trec_Id = "warc-trec-id";
@@ -209,8 +188,7 @@ std::string const Record::Response = "response";
             return Result(Incomplete_Record{});
         }
     }
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    while (std::isspace(in.peek())) { in.ignore(1); }
     return Result(record);
 }
 
@@ -236,8 +214,7 @@ std::string const Record::Response = "response";
             return Result(Incomplete_Record{});
         }
     }
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    while (std::isspace(in.peek())) { in.ignore(1); }
     return Result(record);
 }
 

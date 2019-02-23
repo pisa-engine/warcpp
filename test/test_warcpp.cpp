@@ -101,8 +101,9 @@ std::string warcinfo() {
 TEST_CASE("Parse warcinfo record", "[warc][unit]")
 {
     std::istringstream in(warcinfo());
-    REQUIRE_NOTHROW(as_record(read_record(in)));
-    CHECK(in.peek() == EOF);
+    auto record = read_record(in);
+    REQUIRE(std::get_if<Record>(&record) != nullptr);
+    REQUIRE(in.peek() == EOF);
 }
 
 std::string response() {
@@ -134,10 +135,12 @@ std::string response() {
 
 TEST_CASE("Parse response record", "[warc][unit]") {
     std::istringstream in(response());
-    Record record = as_record(read_record(in));
+    auto rec = read_record(in);
+    Record *record = std::get_if<Record>(&rec);
+    CHECK(record != nullptr);
     CHECK(in.peek() == EOF);
-    CHECK(record.type() == "response");
-    CHECK(record.content() ==
+    CHECK(record->type() == "response");
+    CHECK(record->content() ==
           "HTTP/1.1 200 OK\r\n"
           "Server: lumanau.web.id\r\n"
           "Date: Fri, 10 Feb 2012 22:27:52 GMT\r\n"
@@ -150,8 +153,8 @@ TEST_CASE("Parse response record", "[warc][unit]") {
           "Cluster: vm-2\r\n"
           "\r\n"
           "XML-RPC server accepts POST requests only.");
-    CHECK(record.url() == "http://rajakarcis.com/cms/xmlrpc.php");
-    CHECK(record.trecid() == "clueweb12-0000tw-00-00055");
+    CHECK(record->url() == "http://rajakarcis.com/cms/xmlrpc.php");
+    CHECK(record->trecid() == "clueweb12-0000tw-00-00055");
 }
 
 TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]")
@@ -161,9 +164,10 @@ TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]
     GIVEN("A record that can be parsed") {
         std::istringstream in(input);
         WHEN("Parse fields") {
-            auto record = as_record(read_record(in));
+            auto rec = read_record(in);
+            Record *record = std::get_if<Record>(&rec);
             THEN("The record is " << (valid ? "valid" : "invalid")) {
-                CHECK(record.valid_response() == valid);
+                CHECK(record->valid_response() == valid);
             }
         }
     }
@@ -204,13 +208,15 @@ TEST_CASE("Parse multiple records", "[warc][unit]")
             "\n"
             "HTTP_CONTENT2");
         if (function_type == "read_record") {
-            CHECK(as_record(read_record(in)).content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
-            CHECK(as_record(read_record(in)).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+            auto record = read_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            record = read_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
         } else {
-            CHECK(as_record(read_subsequent_record(in)).content() ==
-                  "HTTP_HEADER1\n\nHTTP_CONTENT1");
-            CHECK(as_record(read_subsequent_record(in)).content() ==
-                  "HTTP_HEADER2\n\nHTTP_CONTENT2");
+            auto record = read_subsequent_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            record = read_subsequent_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
         }
     }
 }
@@ -218,7 +224,9 @@ TEST_CASE("Parse multiple records", "[warc][unit]")
 TEST_CASE("Parse empty record", "[warc][unit]")
 {
     std::istringstream in("\n");
-    REQUIRE_NOTHROW(std::get<Invalid_Version>(as_error(read_record(in))));
+    auto record = read_record(in);
+    REQUIRE(std::get_if<Error>(&record) != nullptr);
+    REQUIRE(std::get_if<Invalid_Version>(std::get_if<Error>(&record)) != nullptr);
 }
 
 TEST_CASE("Skip corrupted record", "[warc][unit]")
@@ -258,21 +266,54 @@ TEST_CASE("Skip corrupted record", "[warc][unit]")
         {
             auto record = read_record(in);
             THEN("Record is invalid") {
-                REQUIRE_NOTHROW(std::get<Missing_Mandatory_Fields>(as_error(record)));
+                REQUIRE(std::get_if<Error>(&record) != nullptr);
+                REQUIRE(std::get_if<Missing_Mandatory_Fields>(std::get_if<Error>(&record)) !=
+                        nullptr);
             }
             AND_WHEN("Read following record") {
                 record = read_subsequent_record(in);
                 THEN("Record is valid") {
-                    REQUIRE_NOTHROW(as_record(record));
-                    CHECK(as_record(record).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+                    REQUIRE(std::get_if<Record>(&record) != nullptr);
+                    REQUIRE(std::get_if<Record>(&record)->content() ==
+                            "HTTP_HEADER2\n\nHTTP_CONTENT2");
                 }
                 AND_WHEN("Read another record") {
                     record = read_subsequent_record(in);
                     THEN("No more records found") {
-                        REQUIRE_NOTHROW(std::get<Invalid_Version>(as_error(record)));
+                        REQUIRE(std::get_if<Error>(&record) != nullptr);
+                        REQUIRE(std::get_if<Invalid_Version>(std::get_if<Error>(&record)) !=
+                                nullptr);
                     }
                 }
             }
         }
     }
 }
+
+//TEST_CASE("00.warc", "[warc][integration]")
+//{
+//    std::ifstream in("/home/elshize/phd/00.warc");
+//    std::vector<std::string> titles;
+//    while (not in.eof() and titles.size() < 10) {
+//        match(read_subsequent_record(in),
+//              [&](Record const &rec) {
+//                  if (rec.valid_response()) {
+//                      titles.push_back(rec.trecid());
+//                      //std::cerr << rec.content().size() << " >>>" << rec.content() << "<<<\n";
+//                  } else {
+//                      std::cerr << rec.content().size() << " >>>" << rec.content() << "<<<\n";
+//                  }
+//              },
+//              [](Error const &err) { std::cerr << err << '\n'; });
+//    }
+//    REQUIRE(titles == std::vector<std::string>{"clueweb09-en0000-00-00000",
+//                                               "clueweb09-en0000-00-00001",
+//                                               "clueweb09-en0000-00-00002",
+//                                               "clueweb09-en0000-00-00003",
+//                                               "clueweb09-en0000-00-00004",
+//                                               "clueweb09-en0000-00-00005",
+//                                               "clueweb09-en0000-00-00006",
+//                                               "clueweb09-en0000-00-00007",
+//                                               "clueweb09-en0000-00-00008",
+//                                               "clueweb09-en0000-00-00009"});
+//}
