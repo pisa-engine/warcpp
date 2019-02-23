@@ -289,31 +289,3 @@ TEST_CASE("Skip corrupted record", "[warc][unit]")
         }
     }
 }
-
-//TEST_CASE("00.warc", "[warc][integration]")
-//{
-//    std::ifstream in("/home/elshize/phd/00.warc");
-//    std::vector<std::string> titles;
-//    while (not in.eof() and titles.size() < 10) {
-//        match(read_subsequent_record(in),
-//              [&](Record const &rec) {
-//                  if (rec.valid_response()) {
-//                      titles.push_back(rec.trecid());
-//                      //std::cerr << rec.content().size() << " >>>" << rec.content() << "<<<\n";
-//                  } else {
-//                      std::cerr << rec.content().size() << " >>>" << rec.content() << "<<<\n";
-//                  }
-//              },
-//              [](Error const &err) { std::cerr << err << '\n'; });
-//    }
-//    REQUIRE(titles == std::vector<std::string>{"clueweb09-en0000-00-00000",
-//                                               "clueweb09-en0000-00-00001",
-//                                               "clueweb09-en0000-00-00002",
-//                                               "clueweb09-en0000-00-00003",
-//                                               "clueweb09-en0000-00-00004",
-//                                               "clueweb09-en0000-00-00005",
-//                                               "clueweb09-en0000-00-00006",
-//                                               "clueweb09-en0000-00-00007",
-//                                               "clueweb09-en0000-00-00008",
-//                                               "clueweb09-en0000-00-00009"});
-//}
