@@ -23,14 +23,14 @@ TEST_CASE("Parse WARC version", "[warc][unit]")
     }
 }
 
-TEST_CASE("--- Parse invalid WARC version string", "[warc][unit]")
+TEST_CASE("Parse invalid WARC version string", "[warc][unit]")
 {
     std::istringstream in("INVALID_STRING");
     std::string version;
     REQUIRE(read_version(in, version)->version == "INVALID_STRING");
 }
 
-TEST_CASE("--- Look for version until EOF", "[warc][unit]")
+TEST_CASE("Look for version until EOF", "[warc][unit]")
 {
     std::istringstream in("");
     std::string version = "initial";
@@ -38,7 +38,7 @@ TEST_CASE("--- Look for version until EOF", "[warc][unit]")
     REQUIRE(version == "initial");
 }
 
-TEST_CASE("--- Parse valid fields", "[warc][unit]")
+TEST_CASE("Parse valid fields", "[warc][unit]")
 {
     std::string input = GENERATE(as<std::string>(),
                                  "WARC-Type: warcinfo\n"
@@ -70,7 +70,7 @@ TEST_CASE("--- Parse valid fields", "[warc][unit]")
     }
 }
 
-TEST_CASE("--- Parse invalid fields", "[warc][unit]")
+TEST_CASE("Parse invalid fields", "[warc][unit]")
 {
     std::string input = GENERATE(as<std::string>(), "invalidfield\n", "invalid:\n", ":value\n");
     GIVEN("Field input: '" << input << "'") {
@@ -98,7 +98,7 @@ std::string warcinfo() {
            "\n";
 }
 
-TEST_CASE("--- Parse warcinfo record", "[warc][unit]")
+TEST_CASE("Parse warcinfo record", "[warc][unit]")
 {
     std::istringstream in(warcinfo());
     REQUIRE_NOTHROW(as_record(read_record(in)));
@@ -132,7 +132,7 @@ std::string response() {
            "\r\n";
 }
 
-TEST_CASE("--- Parse response record", "[warc][unit]") {
+TEST_CASE("Parse response record", "[warc][unit]") {
     std::istringstream in(response());
     Record record = as_record(read_record(in));
     CHECK(in.peek() == EOF);
@@ -154,7 +154,7 @@ TEST_CASE("--- Parse response record", "[warc][unit]") {
     CHECK(record.trecid() == "clueweb12-0000tw-00-00055");
 }
 
-TEST_CASE("--- Check if parsed record is valid (has required fields)", "[warc][unit]")
+TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]")
 {
     auto [input, valid] =
         GENERATE(table<std::string, bool>({{warcinfo(), false}, {response(), true}}));
@@ -169,9 +169,10 @@ TEST_CASE("--- Check if parsed record is valid (has required fields)", "[warc][u
     }
 }
 
-TEST_CASE("--- Parse multiple records", "[warc][unit]")
+TEST_CASE("Parse multiple records", "[warc][unit]")
 {
-    GIVEN("Two records") {
+    auto function_type = GENERATE(as<std::string>(), "read_record", "read_subsequent_record");
+    GIVEN("Two records and function: " << function_type) {
         std::istringstream in(
             "WARC/0.18\n"
             "WARC-Type: response\n"
@@ -202,19 +203,25 @@ TEST_CASE("--- Parse multiple records", "[warc][unit]")
             "HTTP_HEADER2\n"
             "\n"
             "HTTP_CONTENT2");
-        ;
-        CHECK(as_record(read_record(in)).content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
-        CHECK(as_record(read_record(in)).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        if (function_type == "read_record") {
+            CHECK(as_record(read_record(in)).content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            CHECK(as_record(read_record(in)).content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        } else {
+            CHECK(as_record(read_subsequent_record(in)).content() ==
+                  "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            CHECK(as_record(read_subsequent_record(in)).content() ==
+                  "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        }
     }
 }
 
-TEST_CASE("--- Parse empty record", "[warc][unit]")
+TEST_CASE("Parse empty record", "[warc][unit]")
 {
     std::istringstream in("\n");
     REQUIRE_NOTHROW(std::get<Invalid_Version>(as_error(read_record(in))));
 }
 
-TEST_CASE("--- Skip corrupted record", "[warc][unit]")
+TEST_CASE("Skip corrupted record", "[warc][unit]")
 {
     GIVEN("Two records") {
         std::istringstream in(
