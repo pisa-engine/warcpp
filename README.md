@@ -64,7 +64,7 @@ std::size_t total_content_size(std::ifstream& is)
 
 ### Classic Approach
 
-Alternatively, you can use `holds_record()`, `as_record()`, and `as_error()`
+Alternatively, you can use `holds_record` and `std::get<T>(std::variant)`
 functions to access returned data:
 
 ```cpp
@@ -82,7 +82,7 @@ std::size_t total_content_size(std::ifstream& is)
     {
         auto record = warcpp::read_subsequent_record(in);
         if (holds_record(record)) {
-            total += as_record(record).content_length();
+            total += std::get<Record>(record).content_length();
         }
         else {
             // You actually don't need to cast to print
