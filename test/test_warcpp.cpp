@@ -6,6 +6,7 @@
 #include "warcpp/warcpp.hpp"
 
 using namespace warcpp;
+using namespace warcpp::detail;
 
 TEST_CASE("Parse WARC version", "[warc][unit]")
 {
@@ -13,10 +14,11 @@ TEST_CASE("Parse WARC version", "[warc][unit]")
                                  "WARC/0.18",
                                  "WARC/0.18\nUnrelated text",
                                  "\n\n\nWARC/0.18\nUnrelated text");
-    GIVEN("Input: " << input) {
+    GIVEN("Input: " << input)
+    {
         std::istringstream in("WARC/0.18\nUnrelated text");
-        std::string        version;
-        read_version(in, version);
+        std::string version;
+        REQUIRE(read_version(in, version) == std::nullopt);
         REQUIRE(version == "0.18");
     }
 }
@@ -25,14 +27,14 @@ TEST_CASE("Parse invalid WARC version string", "[warc][unit]")
 {
     std::istringstream in("INVALID_STRING");
     std::string version;
-    REQUIRE_FALSE(read_version(in, version));
+    REQUIRE(read_version(in, version)->version == "INVALID_STRING");
 }
 
 TEST_CASE("Look for version until EOF", "[warc][unit]")
 {
     std::istringstream in("");
     std::string version = "initial";
-    REQUIRE_FALSE(read_version(in, version));
+    REQUIRE(read_version(in, version)->version == "");
     REQUIRE(version == "initial");
 }
 
@@ -53,7 +55,7 @@ TEST_CASE("Parse valid fields", "[warc][unit]")
         std::istringstream in(input);
         WHEN("Parse fields") {
             Field_Map fields;
-            read_fields(in, fields);
+            REQUIRE(read_fields(in, fields) == std::nullopt);
             THEN("Read fields are lowercase and stripped") {
                 CHECK(fields["warc-type"] == "warcinfo");
                 CHECK(fields["content-type"] == "application/warc-fields");
@@ -74,7 +76,8 @@ TEST_CASE("Parse invalid fields", "[warc][unit]")
     GIVEN("Field input: '" << input << "'") {
         std::istringstream in(input);
         Field_Map          fields;
-        REQUIRE_THROWS_AS(read_fields(in, fields), Warc_Format_Error);
+        REQUIRE(read_fields(in, fields)->field ==
+                std::string(input.begin(), std::prev(input.end())));
     }
 }
 
@@ -98,9 +101,9 @@ std::string warcinfo() {
 TEST_CASE("Parse warcinfo record", "[warc][unit]")
 {
     std::istringstream in(warcinfo());
-    Warc_Record record;
-    read_warc_record(in, record);
-    CHECK(in.peek() == EOF);
+    auto record = read_record(in);
+    REQUIRE(std::get_if<Record>(&record) != nullptr);
+    REQUIRE(in.peek() == EOF);
 }
 
 std::string response() {
@@ -132,11 +135,12 @@ std::string response() {
 
 TEST_CASE("Parse response record", "[warc][unit]") {
     std::istringstream in(response());
-    Warc_Record        record;
-    read_warc_record(in, record);
+    auto rec = read_record(in);
+    Record *record = std::get_if<Record>(&rec);
+    CHECK(record != nullptr);
     CHECK(in.peek() == EOF);
-    CHECK(record.type() == "response");
-    CHECK(record.content() ==
+    CHECK(record->type() == "response");
+    CHECK(record->content() ==
           "HTTP/1.1 200 OK\r\n"
           "Server: lumanau.web.id\r\n"
           "Date: Fri, 10 Feb 2012 22:27:52 GMT\r\n"
@@ -149,8 +153,8 @@ TEST_CASE("Parse response record", "[warc][unit]") {
           "Cluster: vm-2\r\n"
           "\r\n"
           "XML-RPC server accepts POST requests only.");
-    CHECK(record.url() == "http://rajakarcis.com/cms/xmlrpc.php");
-    CHECK(record.trecid() == "clueweb12-0000tw-00-00055");
+    CHECK(record->url() == "http://rajakarcis.com/cms/xmlrpc.php");
+    CHECK(record->trecid() == "clueweb12-0000tw-00-00055");
 }
 
 TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]")
@@ -160,41 +164,19 @@ TEST_CASE("Check if parsed record is valid (has required fields)", "[warc][unit]
     GIVEN("A record that can be parsed") {
         std::istringstream in(input);
         WHEN("Parse fields") {
-            Warc_Record record;
-            read_warc_record(in, record);
+            auto rec = read_record(in);
+            Record *record = std::get_if<Record>(&rec);
             THEN("The record is " << (valid ? "valid" : "invalid")) {
-                CHECK(record.valid() == valid);
+                CHECK(record->valid_response() == valid);
             }
         }
     }
 }
 
-TEST_CASE("Parse invalid content-length", "[warc][unit]")
-{
-    GIVEN("A record with invalid WARC length") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "Content-Length: INVALID\n"
-            "\n"
-            "HTTP/1.1 200 OK\n"
-            "Content-Length: 10\n");
-        Warc_Record record;
-        REQUIRE_FALSE(read_warc_record(in, record));
-    }
-    GIVEN("A record with WARC length == 0") {
-        std::istringstream in(
-            "WARC/0.18\n"
-            "Content-Length: 0\n"
-            "\n");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content_length() == 0);
-    }
-}
-
 TEST_CASE("Parse multiple records", "[warc][unit]")
 {
-    GIVEN("Two records") {
+    auto function_type = GENERATE(as<std::string>(), "read_record", "read_subsequent_record");
+    GIVEN("Two records and function: " << function_type) {
         std::istringstream in(
             "WARC/0.18\n"
             "WARC-Type: response\n"
@@ -225,20 +207,26 @@ TEST_CASE("Parse multiple records", "[warc][unit]")
             "HTTP_HEADER2\n"
             "\n"
             "HTTP_CONTENT2");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        if (function_type == "read_record") {
+            auto record = read_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            record = read_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        } else {
+            auto record = read_subsequent_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER1\n\nHTTP_CONTENT1");
+            record = read_subsequent_record(in);
+            CHECK(std::get_if<Record>(&record)->content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        }
     }
 }
 
 TEST_CASE("Parse empty record", "[warc][unit]")
 {
     std::istringstream in("\n");
-    Warc_Record record;
-    REQUIRE_NOTHROW(read_warc_record(in, record));
-    REQUIRE(not record.valid());
+    auto record = read_record(in);
+    REQUIRE(std::get_if<Error>(&record) != nullptr);
+    REQUIRE(std::get_if<Invalid_Version>(std::get_if<Error>(&record)) != nullptr);
 }
 
 TEST_CASE("Skip corrupted record", "[warc][unit]")
@@ -274,8 +262,30 @@ TEST_CASE("Skip corrupted record", "[warc][unit]")
             "HTTP_HEADER2\n"
             "\n"
             "HTTP_CONTENT2");
-        Warc_Record record;
-        read_warc_record(in, record);
-        CHECK(record.content() == "HTTP_HEADER2\n\nHTTP_CONTENT2");
+        WHEN("Read first record")
+        {
+            auto record = read_record(in);
+            THEN("Record is invalid") {
+                REQUIRE(std::get_if<Error>(&record) != nullptr);
+                REQUIRE(std::get_if<Missing_Mandatory_Fields>(std::get_if<Error>(&record)) !=
+                        nullptr);
+            }
+            AND_WHEN("Read following record") {
+                record = read_subsequent_record(in);
+                THEN("Record is valid") {
+                    REQUIRE(std::get_if<Record>(&record) != nullptr);
+                    REQUIRE(std::get_if<Record>(&record)->content() ==
+                            "HTTP_HEADER2\n\nHTTP_CONTENT2");
+                }
+                AND_WHEN("Read another record") {
+                    record = read_subsequent_record(in);
+                    THEN("No more records found") {
+                        REQUIRE(std::get_if<Error>(&record) != nullptr);
+                        REQUIRE(std::get_if<Invalid_Version>(std::get_if<Error>(&record)) !=
+                                nullptr);
+                    }
+                }
+            }
+        }
     }
 }
