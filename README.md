@@ -5,7 +5,37 @@ warcpp
 
 A single-header C++ parser for the Web Archive (WARC) format.
 
-## Usage
+## Build tool
+
+To build command-line tool or tests, follow these steps:
+
+    # git clone https://github.com/pisa-engine/warcpp.git
+    # cd warcpp
+    # mkdir build
+    # cd build
+    # cmake ..
+    # make
+
+The binary file will be in `warcpp/build/src` folder.
+
+### Usage
+
+    # warc --help
+    Parse a WARC file and output in a selected text format.
+
+    Because lines delimit records, any new line characters in the content
+    will be replaced by \u000A sequence.
+    Usage: ./src/warc [OPTIONS] input [output]
+
+    Positionals:
+      input TEXT REQUIRED         Input file(s); use - to read from stdin
+      output TEXT                 Output file; if missing, write to stdout
+
+    Options:
+      -h,--help                   Print this help message and exit
+      -f,--format TEXT:{tsv}=tsv  Output file format
+
+## Library
 
 ### `namespace warcpp`
 
@@ -51,9 +81,9 @@ std::size_t total_content_size(std::ifstream& is)
                 match(error,
                       [](Invalid_Version const& err) {
                           std::clog << "Invalid version in line: " << err.version << '\n';
-                      }
+                      },
                       [](auto const& err) {
-                          std::clog << "Some other error: " << error << '\n';
+                          std::clog << "Some other error: " << err << '\n';
                       });
                 return 0u;
             });

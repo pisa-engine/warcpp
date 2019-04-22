@@ -11,6 +11,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(WARCPP_ENABLE_TESTING "Enable testing of the library." ON)
+option(WARCPP_BUILD_TOOL "Build cmd tool." ON)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     if (CXX_COMPILER_VERSION VERSION_LESS 4.7)
@@ -36,5 +38,17 @@ target_include_directories(warcpp INTERFACE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
 )
 
-enable_testing()
-add_subdirectory(test)
+include(CTest)
+if (WARCPP_ENABLE_TESTING AND BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()
+
+if (WARCPP_BUILD_TOOL)
+    if(NOT TARGET CLI11)
+        # Add CLI11
+        set(CLI11_TESTING OFF CACHE BOOL "skip CLI11 testing")
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/CLI11 EXCLUDE_FROM_ALL)
+    endif()
+    add_subdirectory(src)
+endif()
