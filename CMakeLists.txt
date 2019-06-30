@@ -37,6 +37,7 @@ add_library(warcpp INTERFACE)
 target_include_directories(warcpp INTERFACE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
 )
+target_link_libraries(warcpp INTERFACE nlohmann_json::nlohmann_json)
 
 include(CTest)
 if (WARCPP_ENABLE_TESTING AND BUILD_TESTING)

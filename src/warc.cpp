@@ -3,6 +3,7 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
+#include <nlohmann/json.hpp>
 
 #include <warcpp/warcpp.hpp>
 
@@ -11,6 +12,7 @@ using warcpp::Invalid_Version;
 using warcpp::match;
 using warcpp::Record;
 using warcpp::Result;
+using json = nlohmann::json;
 
 template <class Fn>
 void read(std::istream &is, Fn print_record)
@@ -44,18 +46,10 @@ auto select_print_fn(std::string const &fmt)
         return [](std::ostream &os) {
             return [&](Record const &rec) {
                 if (rec.valid_response()) {
-                    os << "{\"title\":\"" << rec.trecid() << "\",\"url\":\"" << rec.url() <<
-                        "\",\"body\":\"";
-                    auto begin = rec.content().begin();
-                    auto end = rec.content().end();
-                    auto prev = begin;
-                    for (auto iter = std::find(begin, end, '\n'); iter != end;
-                         prev = std::next(iter), iter = std::find(std::next(iter), end, '\n')) {
-                        os.write(&*prev, std::distance(prev, iter));
-                        os << "\\n";
-                    }
-                    os.write(&*prev, std::distance(prev, end));
-                    os << "\"}\n";
+                    json entry = {
+                        {"title", rec.trecid()}, {"url", rec.url()}, {"body", rec.content()}};
+                    os << entry.dump(-1, ' ', false, nlohmann::json::error_handler_t::ignore)
+                       << "\n";
                 }
             };
         };
