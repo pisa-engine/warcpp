@@ -26,20 +26,42 @@ void read(std::istream &is, Fn print_record)
 auto select_print_fn(std::string const &fmt)
     -> std::function<std::function<void(Record const &)>(std::ostream &)>
 {
-    auto print_tsv = [](std::ostream &os) {
-        return [&](Record const &rec) {
-            if (rec.valid_response()) {
-                os << rec.trecid() << '\t' << rec.url() << '\t';
-                std::istringstream is(std::move(rec.content()));
-                std::string line;
-                while (std::getline(is, line)) {
-                    os << "\\u000A" << line;
+    if (fmt == "tsv") {
+        return [](std::ostream &os) {
+            return [&](Record const &rec) {
+                if (rec.valid_response()) {
+                    os << rec.trecid() << '\t' << rec.url() << '\t';
+                    std::istringstream is(std::move(rec.content()));
+                    std::string line;
+                    while (std::getline(is, line)) {
+                        os << "\\u000A" << line;
+                    }
+                    os << '\n';
                 }
-                os << '\n';
-            }
+            };
         };
-    };
-    return print_tsv;
+    } else if (fmt == "json") {
+        return [](std::ostream &os) {
+            return [&](Record const &rec) {
+                if (rec.valid_response()) {
+                    os << "{\"title\":\"" << rec.trecid() << "\",\"url\":\"" << rec.url() <<
+                        "\",\"body\":\"";
+                    auto begin = rec.content().begin();
+                    auto end = rec.content().end();
+                    auto prev = begin;
+                    for (auto iter = std::find(begin, end, '\n'); iter != end;
+                         prev = std::next(iter), iter = std::find(std::next(iter), end, '\n')) {
+                        os.write(&*prev, std::distance(prev, iter));
+                        os << "\\n";
+                    }
+                    os.write(&*prev, std::distance(prev, end));
+                    os << "\"}\n";
+                }
+            };
+        };
+    } else {
+        throw std::runtime_error("Unknown output format");
+    }
 }
 
 int main(int argc, char **argv)
@@ -53,7 +75,8 @@ int main(int argc, char **argv)
         "will be replaced by \\u000A sequence."};
     app.add_option("input", input, "Input file(s); use - to read from stdin")->required();
     app.add_option("output", output, "Output file; if missing, write to stdout");
-    app.add_option("-f,--format", fmt, "Output file format", true)->check(CLI::IsMember({"tsv"}));
+    app.add_option("-f,--format", fmt, "Output file format", true)
+        ->check(CLI::IsMember({"tsv", "json"}));
     CLI11_PARSE(app, argc, argv);
 
     auto print = select_print_fn(fmt);
