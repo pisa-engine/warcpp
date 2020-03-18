@@ -289,3 +289,55 @@ TEST_CASE("Skip corrupted record", "[warc][unit]")
         }
     }
 }
+
+TEST_CASE("Match result", "[unit]")
+{
+    std::istringstream in(response());
+    auto result = read_record(in);
+    std::string trecid;
+    // Works when mutable
+    match(
+        result,
+        [&trecid](auto&& record){
+            REQUIRE(record.trecid() == "clueweb12-0000tw-00-00055");
+            trecid = std::move(record.trecid()); // move out of record
+            REQUIRE(record.url() == "http://rajakarcis.com/cms/xmlrpc.php");
+            REQUIRE(record.content() ==
+                "HTTP/1.1 200 OK\r\n"
+                "Server: lumanau.web.id\r\n"
+                "Date: Fri, 10 Feb 2012 22:27:52 GMT\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n"
+                "X-Powered-By: PHP/5.3.8\r\n"
+                "Set-Cookie: "
+                "w3tc_referrer=http%3A%2F%2Frajakarcis.com%2F2012%2F02%2F07%2Fgbh-the-england-legend-"
+                "punk-rock%2F; path=/cms/\r\n"
+                "Cluster: vm-2\r\n"
+                "\r\n"
+                "XML-RPC server accepts POST requests only.");
+            },
+        [](auto&& error){}
+    );
+    // Works when const
+    match(
+        result,
+        [](auto const& record){
+            REQUIRE(record.trecid() != "clueweb12-0000tw-00-00055"); // moved out so not equal
+            REQUIRE(record.url() == "http://rajakarcis.com/cms/xmlrpc.php");
+            REQUIRE(record.content() ==
+                "HTTP/1.1 200 OK\r\n"
+                "Server: lumanau.web.id\r\n"
+                "Date: Fri, 10 Feb 2012 22:27:52 GMT\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n"
+                "X-Powered-By: PHP/5.3.8\r\n"
+                "Set-Cookie: "
+                "w3tc_referrer=http%3A%2F%2Frajakarcis.com%2F2012%2F02%2F07%2Fgbh-the-england-legend-"
+                "punk-rock%2F; path=/cms/\r\n"
+                "Cluster: vm-2\r\n"
+                "\r\n"
+                "XML-RPC server accepts POST requests only.");
+            },
+        [](auto&& error){}
+    );
+}
