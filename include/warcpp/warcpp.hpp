@@ -99,6 +99,7 @@ class Record {
     static std::string const Warc_Type;
     static std::string const Warc_Target_Uri;
     static std::string const Warc_Trec_Id;
+    static std::string const Warc_Record_Id;
     static std::string const Content_Length;
     static std::string const Response;
 
@@ -116,7 +117,7 @@ class Record {
     }
     [[nodiscard]] auto valid_response() const noexcept -> bool
     {
-        return valid() && has(Warc_Target_Uri) && type() == Response && has(Warc_Trec_Id);
+        return valid() && has(Warc_Target_Uri) && type() == Response && (has(Warc_Trec_Id) || has(Warc_Record_Id));
     }
     [[nodiscard]] auto content_length() const -> std::size_t
     {
@@ -135,12 +136,19 @@ class Record {
     [[nodiscard]] auto url() -> std::string && { return std::move(fields_.at(Warc_Target_Uri)); }
     [[nodiscard]] auto trecid() const -> std::string const & { return fields_.at(Warc_Trec_Id); }
     [[nodiscard]] auto trecid() -> std::string && { return std::move(fields_.at(Warc_Trec_Id)); }
+    [[nodiscard]] auto recordid() const -> std::string const & { return fields_.at(Warc_Record_Id); }
+    [[nodiscard]] auto recordid() -> std::string && { return std::move(fields_.at(Warc_Record_Id)); }
+
     [[nodiscard]] auto field(std::string const &name) const -> std::optional<std::string>
     {
         if (auto pos = fields_.find(name); pos != fields_.end()) {
             return pos->second;
         }
         return std::nullopt;
+    }
+
+    [[nodiscard]] auto has_trecid() const -> bool {
+        return has(Warc_Trec_Id);
     }
 
     friend auto read_record(std::istream &in) -> Result;
@@ -206,6 +214,7 @@ constexpr bool holds_record(Result const &result) { return std::holds_alternativ
 std::string const Record::Warc_Type = "warc-type";
 std::string const Record::Warc_Target_Uri = "warc-target-uri";
 std::string const Record::Warc_Trec_Id = "warc-trec-id";
+std::string const Record::Warc_Record_Id = "warc-record-id";
 std::string const Record::Content_Length = "content-length";
 std::string const Record::Response = "response";
 
