@@ -151,6 +151,10 @@ class Record {
         return has(Warc_Trec_Id);
     }
 
+    [[nodiscard]] auto has_recordid() const -> bool {
+        return has(Warc_Record_Id);
+    }
+
     friend auto read_record(std::istream &in) -> Result;
     friend auto read_subsequent_record(std::istream &in) -> Result;
     friend std::ostream &operator<<(std::ostream &os, Record const &record);
